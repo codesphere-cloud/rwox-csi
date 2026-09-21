@@ -1,0 +1,14 @@
+{{- if .Values.storageClass.create }}
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ .Values.storageClass.name }}
+provisioner: rwox.storage.example.io
+parameters:
+  backingStorageClass: {{ required "storageClass.backingStorageClass is required" .Values.storageClass.backingStorageClass | quote }}
+reclaimPolicy: {{ .Values.storageClass.reclaimPolicy }}
+allowVolumeExpansion: true
+volumeBindingMode: {{ .Values.storageClass.volumeBindingMode }}
+mountOptions:
+{{- toYaml .Values.storageClass.mountOptions | nindent 2 }}
+{{- end }}

@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: rwox-csi-node
+  namespace: {{ include "rwox.namespace" . }}
+spec:
+  selector: {matchLabels: {app: rwox-csi-node}}
+  template:
+    metadata: {labels: {app: rwox-csi-node}}
+    spec:
+      serviceAccountName: rwox-csi-node
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: driver
+          image: {{ .Values.images.node }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: ["/csi-node"]
+          args: ["--endpoint=unix:///csi/csi.sock", "--node-id=$(NODE_NAME)", "--metrics-address=:8080"]
+          securityContext: {privileged: true}
+          env:
+            - name: NODE_NAME
+              valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
+          volumeMounts:
+            - {name: plugin-dir, mountPath: /csi}
+            - {name: kubelet-dir, mountPath: /var/lib/kubelet, mountPropagation: Bidirectional}
+          ports: [{name: metrics, containerPort: 8080}]
+        - name: registrar
+          image: {{ .Values.images.registrar }}
+          args: ["--csi-address=/csi/csi.sock", "--kubelet-registration-path=/var/lib/kubelet/plugins/rwox.storage.example.io/csi.sock"]
+          volumeMounts:
+            - {name: plugin-dir, mountPath: /csi}
+            - {name: registration-dir, mountPath: /registration}
+      volumes:
+        - name: plugin-dir
+          hostPath: {path: /var/lib/kubelet/plugins/rwox.storage.example.io, type: DirectoryOrCreate}
+        - name: registration-dir
+          hostPath: {path: /var/lib/kubelet/plugins_registry, type: Directory}
+        - name: kubelet-dir
+          hostPath: {path: /var/lib/kubelet, type: Directory}

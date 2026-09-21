@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rwox-csi-operator
+  namespace: {{ include "rwox.namespace" . }}
+spec:
+  replicas: {{ .Values.operator.replicas }}
+  selector: {matchLabels: {app: rwox-csi-operator}}
+  template:
+    metadata: {labels: {app: rwox-csi-operator}}
+    spec:
+      serviceAccountName: rwox-csi-operator
+      containers:
+        - name: operator
+          image: {{ .Values.images.operator }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: ["/operator"]
+          args:
+            - --namespace={{ include "rwox.namespace" . }}
+            - --cluster-domain={{ .Values.clusterDomain }}
+            - --ganesha-image={{ .Values.images.ganesha }}
+            - --leader-elect=true
+          ports:
+            - {name: metrics, containerPort: 8080}
+            - {name: health, containerPort: 8081}
+          readinessProbe: {httpGet: {path: /readyz, port: health}}
+          livenessProbe: {httpGet: {path: /healthz, port: health}}

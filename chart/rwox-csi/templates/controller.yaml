@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rwox-csi-controller
+  namespace: {{ include "rwox.namespace" . }}
+spec:
+  replicas: {{ .Values.controller.replicas }}
+  selector: {matchLabels: {app: rwox-csi-controller}}
+  template:
+    metadata: {labels: {app: rwox-csi-controller}}
+    spec:
+      serviceAccountName: rwox-csi-controller
+      containers:
+        - name: driver
+          image: {{ .Values.images.controller }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: ["/csi-controller"]
+          args: ["--endpoint=unix:///csi/csi.sock", "--metrics-address=:8080"]
+          volumeMounts: [{name: socket, mountPath: /csi}]
+          ports: [{name: metrics, containerPort: 8080}]
+        - name: provisioner
+          image: {{ .Values.images.provisioner }}
+          args: ["--csi-address=/csi/csi.sock", "--leader-election=true", "--timeout=30s"]
+          volumeMounts: [{name: socket, mountPath: /csi}]
+        - name: resizer
+          image: {{ .Values.images.resizer }}
+          args: ["--csi-address=/csi/csi.sock", "--leader-election=true", "--timeout=30s"]
+          volumeMounts: [{name: socket, mountPath: /csi}]
+      volumes: [{name: socket, emptyDir: {}}]
