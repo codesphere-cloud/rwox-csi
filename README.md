@@ -44,20 +44,22 @@ docker build -t rwox-csi:dev .
 
 The single image contains `/csi-controller`, `/csi-node`, and `/operator`; the Helm workload selects the appropriate command.
 
+GitHub Actions runs formatting, vet, tests, binary builds, chart linting, and a multi-architecture container build for every pull request. Pushes to `main` publish `main` and `sha-*` image tags to `ghcr.io/codesphere-cloud/rwox-csi`. A semantic version tag such as `v0.1.0` additionally publishes `0.1.0`, `0.1`, and `latest` image tags plus an OCI Helm chart with the same version.
+
 ## Install
 
-Build and publish the image, then install with the backing RWO StorageClass and image locations for your registry:
+For a tagged release, install the OCI chart from GHCR and select the backing RWO StorageClass:
 
 ```sh
-helm upgrade --install rwox ./chart/rwox-csi \
+helm upgrade --install rwox oci://ghcr.io/codesphere-cloud/charts/rwox-csi \
+  --version 0.1.0 \
   --namespace rwx-csi-system --create-namespace \
-  --set storageClass.backingStorageClass=standard-rwo \
-  --set images.controller=registry.example/rwox-csi:dev \
-  --set images.node=registry.example/rwox-csi:dev \
-  --set images.operator=registry.example/rwox-csi:dev
+  --set storageClass.backingStorageClass=standard-rwo
 ```
 
-The NFS-Ganesha image is configurable with `images.ganesha` and must include `sh` and `rpcinfo` for the NFSv4 readiness probe. Nodes must have the NFS client mount helper installed. The chart creates the `rwox` StorageClass by default; edit `storageClass.name`, `mountOptions`, and `backingStorageClass` as needed. Only use `reclaimPolicy: Delete`.
+GHCR packages are private by default until their package visibility is changed. For a private package, run `helm registry login ghcr.io` first and configure `imagePullSecrets` for the cluster.
+
+For local development, install `./chart/rwox-csi` and override `image.repository` and `image.tag`. The NFS-Ganesha image is configurable with `images.ganesha` and must include `sh` and `rpcinfo` for the NFSv4 readiness probe. Nodes must have the NFS client mount helper installed. The chart creates the `rwox` StorageClass by default; edit `storageClass.name`, `mountOptions`, and `backingStorageClass` as needed. Only use `reclaimPolicy: Delete`.
 
 ## PoC acceptance
 

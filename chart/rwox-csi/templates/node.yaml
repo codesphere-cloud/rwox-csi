@@ -9,12 +9,16 @@ spec:
     metadata: {labels: {app: rwox-csi-node}}
     spec:
       serviceAccountName: rwox-csi-node
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
       containers:
         - name: driver
-          image: {{ .Values.images.node }}
-          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          image: {{ include "rwox.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["/csi-node"]
           args: ["--endpoint=unix:///csi/csi.sock", "--node-id=$(NODE_NAME)", "--metrics-address=:8080"]
           securityContext: {privileged: true}

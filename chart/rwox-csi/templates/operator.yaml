@@ -10,10 +10,14 @@ spec:
     metadata: {labels: {app: rwox-csi-operator}}
     spec:
       serviceAccountName: rwox-csi-operator
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: operator
-          image: {{ .Values.images.operator }}
-          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          image: {{ include "rwox.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["/operator"]
           args:
             - --namespace={{ include "rwox.namespace" . }}

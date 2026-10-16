@@ -1,15 +1,19 @@
 namespace: rwx-csi-system
 clusterDomain: cluster.local
 
+image:
+  repository: ghcr.io/codesphere-cloud/rwox-csi
+  # Defaults to Chart.appVersion when empty.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
 images:
-  controller: rwox-csi:latest
-  node: rwox-csi:latest
-  operator: rwox-csi:latest
   ganesha: quay.io/nfs-ganesha/nfs-ganesha:latest
   provisioner: registry.k8s.io/sig-storage/csi-provisioner:v5.2.0
   resizer: registry.k8s.io/sig-storage/csi-resizer:v1.13.2
   registrar: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0
-imagePullPolicy: IfNotPresent
 
 storageClass:
   create: true

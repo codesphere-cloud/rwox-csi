@@ -10,10 +10,14 @@ spec:
     metadata: {labels: {app: rwox-csi-controller}}
     spec:
       serviceAccountName: rwox-csi-controller
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: driver
-          image: {{ .Values.images.controller }}
-          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          image: {{ include "rwox.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["/csi-controller"]
           args: ["--endpoint=unix:///csi/csi.sock", "--metrics-address=:8080"]
           volumeMounts: [{name: socket, mountPath: /csi}]
