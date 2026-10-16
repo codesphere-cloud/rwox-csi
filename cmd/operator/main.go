@@ -6,6 +6,7 @@ import (
 
 	"github.com/rwox-csi/rwox-csi/internal/kube"
 	operatorcontroller "github.com/rwox-csi/rwox-csi/internal/operator"
+	"github.com/rwox-csi/rwox-csi/internal/resources"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -19,7 +20,7 @@ func main() {
 	flag.StringVar(&probeAddress, "health-probe-address", ":8081", "health probe address")
 	flag.StringVar(&namespace, "namespace", "rwx-csi-system", "gateway resource namespace")
 	flag.StringVar(&clusterDomain, "cluster-domain", "cluster.local", "Kubernetes cluster DNS domain")
-	flag.StringVar(&image, "ganesha-image", "quay.io/nfs-ganesha/nfs-ganesha:latest", "NFS-Ganesha image")
+	flag.StringVar(&image, "ganesha-image", resources.DefaultGaneshaImage, "NFS-Ganesha image")
 	flag.BoolVar(&leaderElect, "leader-elect", true, "enable leader election")
 	opts := zap.Options{Development: false}
 	opts.BindFlags(flag.CommandLine)

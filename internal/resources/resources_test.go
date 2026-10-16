@@ -26,6 +26,18 @@ func TestResourceContract(t *testing.T) {
 	if *sts.Spec.Replicas != 1 || sts.Spec.Template.Spec.Volumes[0].PersistentVolumeClaim.ClaimName != n.PVC {
 		t.Fatalf("unexpected StatefulSet: %#v", sts.Spec)
 	}
+	ganesha := sts.Spec.Template.Spec.Containers[0]
+	if len(ganesha.Command) != 2 || ganesha.Command[0] != "/bin/bash" || ganesha.Command[1] != "-ec" {
+		t.Fatalf("unexpected Ganesha command: %#v", ganesha.Command)
+	}
+	if len(ganesha.Args) != 1 || !strings.Contains(ganesha.Args[0], "exec /usr/local/bin/ganesha.nfsd") {
+		t.Fatalf("unexpected Ganesha arguments: %#v", ganesha.Args)
+	}
+	for _, prerequisite := range []string{"rpcbind", "rpc.statd", "dbus-daemon"} {
+		if !strings.Contains(ganesha.Args[0], prerequisite) {
+			t.Errorf("Ganesha startup command does not start %s", prerequisite)
+		}
+	}
 	if Service(v, "rwx-csi-system").Spec.Ports[0].Port != 2049 {
 		t.Fatal("NFS service does not expose 2049")
 	}

@@ -10,7 +10,7 @@ image:
 imagePullSecrets: []
 
 images:
-  ganesha: quay.io/nfs-ganesha/nfs-ganesha:latest
+  ganesha: ghcr.io/kubernetes-sigs/nfs-ganesha:v6.5
   provisioner: registry.k8s.io/sig-storage/csi-provisioner:v5.2.0
   resizer: registry.k8s.io/sig-storage/csi-resizer:v1.13.2
   registrar: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0
