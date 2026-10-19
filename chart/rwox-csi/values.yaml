@@ -10,7 +10,8 @@ image:
 imagePullSecrets: []
 
 images:
-  ganesha: ghcr.io/kubernetes-sigs/nfs-ganesha:v6.5
+  # v6.5 breaks Git pack-file reopens over NFSv4 (nfs-ganesha#1219).
+  ganesha: ghcr.io/kubernetes-sigs/nfs-ganesha:v4.0.8
   provisioner: registry.k8s.io/sig-storage/csi-provisioner:v5.2.0
   resizer: registry.k8s.io/sig-storage/csi-resizer:v1.13.2
   registrar: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0

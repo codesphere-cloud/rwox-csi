@@ -54,7 +54,7 @@ func TestGaneshaSecurityContract(t *testing.T) {
 	v := volume()
 	v.Spec.NFS.BackingDirectory = "export"
 	cfg := GaneshaConfig(v)
-	for _, want := range []string{"Protocols = 4", "SecType = sys", "Squash = No_Root_Squash", "Path = \"/data/export\""} {
+	for _, want := range []string{"Protocols = 4", "Graceless = true", "Grace_Period = 0", "SecType = sys", "Squash = No_Root_Squash", "Path = \"/data/export\""} {
 		if !strings.Contains(cfg, want) {
 			t.Errorf("config missing %q", want)
 		}

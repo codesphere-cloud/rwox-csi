@@ -13,9 +13,12 @@ import (
 )
 
 const (
-	VolumeLabel         = "storage.example.io/volume"
-	ManagedByLabel      = "app.kubernetes.io/managed-by"
-	DefaultGaneshaImage = "ghcr.io/kubernetes-sigs/nfs-ganesha:v6.5"
+	VolumeLabel    = "storage.example.io/volume"
+	ManagedByLabel = "app.kubernetes.io/managed-by"
+	// v6.5 contains an NFSv4 OPEN-upgrade regression that breaks Git pack
+	// creation on an export (nfs-ganesha/nfs-ganesha#1219). v4.0.8 predates
+	// that regression and is the latest compatible published gateway image.
+	DefaultGaneshaImage = "ghcr.io/kubernetes-sigs/nfs-ganesha:v4.0.8"
 	ganeshaStartup      = `
 /usr/sbin/rpcinfo 127.0.0.1 >/dev/null 2>&1 || /usr/sbin/rpcbind -w
 /usr/sbin/rpc.statd --port 662
@@ -53,6 +56,10 @@ func backingPath(v *storagev1alpha1.RWXVolume) string {
 func GaneshaConfig(v *storagev1alpha1.RWXVolume) string {
 	return fmt.Sprintf(`NFS_CORE_PARAM {
   Protocols = 4;
+}
+NFSV4 {
+  Graceless = true;
+  Grace_Period = 0;
 }
 EXPORT_DEFAULTS {
   Access_Type = RW;
