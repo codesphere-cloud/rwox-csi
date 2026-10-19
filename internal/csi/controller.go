@@ -17,7 +17,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const BackingStorageClassParameter = "backingStorageClass"
+const (
+	BackingStorageClassParameter = "backingStorageClass"
+	DirectoryModeParameter       = "directoryMode"
+)
 
 type ControllerServer struct {
 	csipb.UnimplementedControllerServer
@@ -49,6 +52,10 @@ func (s *ControllerServer) CreateVolume(ctx context.Context, req *csipb.CreateVo
 	if backing == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "StorageClass parameter %q is required", BackingStorageClassParameter)
 	}
+	directoryMode := req.Parameters[DirectoryModeParameter]
+	if !storagev1alpha1.ValidDirectoryMode(directoryMode) {
+		return nil, status.Errorf(codes.InvalidArgument, "StorageClass parameter %q must be an octal mode such as 0777", DirectoryModeParameter)
+	}
 	name := volumeName(req.Name)
 	bytes := requestedBytes(req.CapacityRange)
 	if req.CapacityRange != nil && req.CapacityRange.LimitBytes > 0 && bytes > req.CapacityRange.LimitBytes {
@@ -58,7 +65,7 @@ func (s *ControllerServer) CreateVolume(ctx context.Context, req *csipb.CreateVo
 	v := &storagev1alpha1.RWXVolume{}
 	err := s.Client.Get(ctx, types.NamespacedName{Name: name}, v)
 	if apierrors.IsNotFound(err) {
-		v = &storagev1alpha1.RWXVolume{TypeMeta: metav1.TypeMeta{APIVersion: storagev1alpha1.GroupVersion.String(), Kind: "RWXVolume"}, ObjectMeta: metav1.ObjectMeta{Name: name, Annotations: map[string]string{"storage.example.io/csi-name": req.Name}}, Spec: storagev1alpha1.RWXVolumeSpec{Capacity: want, Backing: storagev1alpha1.BackingSpec{StorageClassName: backing}, NFS: storagev1alpha1.NFSSpec{Version: "4.1", ExportPath: "/"}}}
+		v = &storagev1alpha1.RWXVolume{TypeMeta: metav1.TypeMeta{APIVersion: storagev1alpha1.GroupVersion.String(), Kind: "RWXVolume"}, ObjectMeta: metav1.ObjectMeta{Name: name, Annotations: map[string]string{"storage.example.io/csi-name": req.Name}}, Spec: storagev1alpha1.RWXVolumeSpec{Capacity: want, Backing: storagev1alpha1.BackingSpec{StorageClassName: backing}, NFS: storagev1alpha1.NFSSpec{Version: "4.1", ExportPath: "/", DirectoryMode: directoryMode}}}
 		if err := s.Client.Create(ctx, v); err != nil {
 			return nil, status.Errorf(codes.Internal, "create RWXVolume: %v", err)
 		}
@@ -67,7 +74,7 @@ func (s *ControllerServer) CreateVolume(ctx context.Context, req *csipb.CreateVo
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get RWXVolume: %v", err)
 	}
-	if v.Spec.Backing.StorageClassName != backing || v.Spec.Capacity.Cmp(want) < 0 {
+	if v.Spec.Backing.StorageClassName != backing || v.Spec.NFS.DirectoryMode != directoryMode || v.Spec.Capacity.Cmp(want) < 0 {
 		return nil, status.Error(codes.AlreadyExists, "a volume with this name exists with incompatible parameters")
 	}
 	if v.Status.Failure != nil && v.Status.Failure.Class == "Permanent" {

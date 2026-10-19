@@ -22,7 +22,7 @@ func TestCreateVolumeIsAsynchronousAndIdempotent(t *testing.T) {
 	ctx := context.Background()
 	cl := fake.NewClientBuilder().WithScheme(kube.Scheme()).WithStatusSubresource(&storagev1alpha1.RWXVolume{}).Build()
 	s := &ControllerServer{Client: cl}
-	req := &csipb.CreateVolumeRequest{Name: "pvc-123", CapacityRange: &csipb.CapacityRange{RequiredBytes: 1 << 30}, VolumeCapabilities: []*csipb.VolumeCapability{rwxCapability()}, Parameters: map[string]string{BackingStorageClassParameter: "fast-rwo"}}
+	req := &csipb.CreateVolumeRequest{Name: "pvc-123", CapacityRange: &csipb.CapacityRange{RequiredBytes: 1 << 30}, VolumeCapabilities: []*csipb.VolumeCapability{rwxCapability()}, Parameters: map[string]string{BackingStorageClassParameter: "fast-rwo", DirectoryModeParameter: "0777"}}
 	if _, err := s.CreateVolume(ctx, req); status.Code(err) != codes.Aborted {
 		t.Fatalf("first call code=%s err=%v", status.Code(err), err)
 	}
@@ -32,6 +32,9 @@ func TestCreateVolumeIsAsynchronousAndIdempotent(t *testing.T) {
 	}
 	if v.Spec.Backing.StorageClassName != "fast-rwo" {
 		t.Fatalf("backing class=%q", v.Spec.Backing.StorageClassName)
+	}
+	if v.Spec.NFS.DirectoryMode != "0777" {
+		t.Fatalf("directory mode=%q", v.Spec.NFS.DirectoryMode)
 	}
 	cap := resource.MustParse("1Gi")
 	v.Status.Capacity = &cap
@@ -45,6 +48,13 @@ func TestCreateVolumeIsAsynchronousAndIdempotent(t *testing.T) {
 	}
 	if resp.Volume.VolumeId != v.Name || resp.Volume.CapacityBytes != 1<<30 {
 		t.Fatalf("unexpected response: %#v", resp.Volume)
+	}
+}
+func TestCreateVolumeRejectsInvalidDirectoryMode(t *testing.T) {
+	s := &ControllerServer{Client: fake.NewClientBuilder().WithScheme(kube.Scheme()).Build()}
+	_, err := s.CreateVolume(context.Background(), &csipb.CreateVolumeRequest{Name: "x", VolumeCapabilities: []*csipb.VolumeCapability{rwxCapability()}, Parameters: map[string]string{BackingStorageClassParameter: "fast", DirectoryModeParameter: "0777; touch /tmp/pwned"}})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code=%s err=%v", status.Code(err), err)
 	}
 }
 func TestCreateVolumeRejectsUnsupportedCapability(t *testing.T) {

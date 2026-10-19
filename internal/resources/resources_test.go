@@ -14,6 +14,7 @@ func volume() *storagev1alpha1.RWXVolume {
 }
 func TestResourceContract(t *testing.T) {
 	v := volume()
+	v.Spec.NFS.DirectoryMode = "0777"
 	n := NamesFor(v.Name)
 	if n.PVC != "rwxvol-test-backing" || n.ConfigMap != "rwxvol-test-ganesha" || n.StatefulSet != "rwxvol-test-gateway" || n.Service != "rwxvol-test" {
 		t.Fatalf("unexpected names: %#v", n)
@@ -37,6 +38,9 @@ func TestResourceContract(t *testing.T) {
 		if !strings.Contains(ganesha.Args[0], prerequisite) {
 			t.Errorf("Ganesha startup command does not start %s", prerequisite)
 		}
+	}
+	if !strings.Contains(ganesha.Args[0], "find /data -xdev -type d -exec chmod 0777 {} +") {
+		t.Errorf("Ganesha startup command does not initialize export directory permissions: %q", ganesha.Args[0])
 	}
 	if Service(v, "rwx-csi-system").Spec.Ports[0].Port != 2049 {
 		t.Fatal("NFS service does not expose 2049")

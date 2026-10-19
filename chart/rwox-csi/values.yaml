@@ -19,6 +19,8 @@ storageClass:
   create: true
   name: rwox
   backingStorageClass: standard
+  # Optional octal mode applied recursively to directories in each export.
+  directoryMode: ""
   reclaimPolicy: Delete
   volumeBindingMode: Immediate
   mountOptions:

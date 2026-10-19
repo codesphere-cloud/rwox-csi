@@ -1,9 +1,13 @@
 package v1alpha1
 
 import (
+	"regexp"
+
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+var directoryModePattern = regexp.MustCompile(`^0[0-7]{3}$`)
 
 const (
 	FinalizerName            = "storage.example.io/cleanup"
@@ -24,8 +28,13 @@ type BackingSpec struct {
 }
 
 type NFSSpec struct {
-	Version    string `json:"version,omitempty"`
-	ExportPath string `json:"exportPath,omitempty"`
+	Version       string `json:"version,omitempty"`
+	ExportPath    string `json:"exportPath,omitempty"`
+	DirectoryMode string `json:"directoryMode,omitempty"`
+}
+
+func ValidDirectoryMode(mode string) bool {
+	return mode == "" || directoryModePattern.MatchString(mode)
 }
 
 type ObjectReference struct {

@@ -60,6 +60,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if v.Spec.Backing.StorageClassName == "" {
 		return r.permanent(ctx, v, "MissingBackingStorageClass", "spec.backing.storageClassName is required")
 	}
+	if !storagev1alpha1.ValidDirectoryMode(v.Spec.NFS.DirectoryMode) {
+		return r.permanent(ctx, v, "InvalidDirectoryMode", "spec.nfs.directoryMode must be an octal mode such as 0777")
+	}
 	sc := &storagev1.StorageClass{}
 	if err := r.Get(ctx, types.NamespacedName{Name: v.Spec.Backing.StorageClassName}, sc); err != nil {
 		if apierrors.IsNotFound(err) {

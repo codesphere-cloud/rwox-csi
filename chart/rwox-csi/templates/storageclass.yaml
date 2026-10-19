@@ -6,6 +6,9 @@ metadata:
 provisioner: rwox.storage.example.io
 parameters:
   backingStorageClass: {{ required "storageClass.backingStorageClass is required" .Values.storageClass.backingStorageClass | quote }}
+{{- with .Values.storageClass.directoryMode }}
+  directoryMode: {{ . | quote }}
+{{- end }}
 reclaimPolicy: {{ .Values.storageClass.reclaimPolicy }}
 allowVolumeExpansion: true
 volumeBindingMode: {{ .Values.storageClass.volumeBindingMode }}
