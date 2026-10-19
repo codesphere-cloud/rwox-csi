@@ -3,6 +3,7 @@ package csi
 import (
 	"context"
 	"testing"
+	"time"
 
 	csipb "github.com/container-storage-interface/spec/lib/go/csi"
 	storagev1alpha1 "github.com/rwox-csi/rwox-csi/api/v1alpha1"
@@ -12,19 +13,44 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func rwxCapability() *csipb.VolumeCapability {
 	return &csipb.VolumeCapability{AccessType: &csipb.VolumeCapability_Mount{Mount: &csipb.VolumeCapability_MountVolume{}}, AccessMode: &csipb.VolumeCapability_AccessMode{Mode: csipb.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER}}
 }
-func TestCreateVolumeIsAsynchronousAndIdempotent(t *testing.T) {
+
+type readyOnCreateClient struct {
+	client.Client
+}
+
+func (c *readyOnCreateClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+	if err := c.Client.Create(ctx, obj, opts...); err != nil {
+		return err
+	}
+	v, ok := obj.(*storagev1alpha1.RWXVolume)
+	if !ok {
+		return nil
+	}
+	stored := &storagev1alpha1.RWXVolume{}
+	if err := c.Client.Get(ctx, client.ObjectKeyFromObject(v), stored); err != nil {
+		return err
+	}
+	cap := resource.MustParse("1Gi")
+	stored.Status.Capacity = &cap
+	stored.Status.Conditions = []metav1.Condition{{Type: storagev1alpha1.ConditionReady, Status: metav1.ConditionTrue, ObservedGeneration: stored.Generation, Reason: "Ready", Message: "ready"}}
+	return c.Client.Status().Update(ctx, stored)
+}
+
+func TestCreateVolumeWaitsUntilReadyAndIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	cl := fake.NewClientBuilder().WithScheme(kube.Scheme()).WithStatusSubresource(&storagev1alpha1.RWXVolume{}).Build()
-	s := &ControllerServer{Client: cl}
+	s := &ControllerServer{Client: &readyOnCreateClient{Client: cl}, ProvisioningPollInterval: time.Millisecond}
 	req := &csipb.CreateVolumeRequest{Name: "pvc-123", CapacityRange: &csipb.CapacityRange{RequiredBytes: 1 << 30}, VolumeCapabilities: []*csipb.VolumeCapability{rwxCapability()}, Parameters: map[string]string{BackingStorageClassParameter: "fast-rwo", DirectoryModeParameter: "0777", BackingDirectoryParameter: "export"}}
-	if _, err := s.CreateVolume(ctx, req); status.Code(err) != codes.Aborted {
-		t.Fatalf("first call code=%s err=%v", status.Code(err), err)
+	resp, err := s.CreateVolume(ctx, req)
+	if err != nil {
+		t.Fatal(err)
 	}
 	v := &storagev1alpha1.RWXVolume{}
 	if err := cl.Get(ctx, types.NamespacedName{Name: volumeName(req.Name)}, v); err != nil {
@@ -39,18 +65,31 @@ func TestCreateVolumeIsAsynchronousAndIdempotent(t *testing.T) {
 	if v.Spec.NFS.BackingDirectory != "export" {
 		t.Fatalf("backing directory=%q", v.Spec.NFS.BackingDirectory)
 	}
-	cap := resource.MustParse("1Gi")
-	v.Status.Capacity = &cap
-	v.Status.Conditions = []metav1.Condition{{Type: storagev1alpha1.ConditionReady, Status: metav1.ConditionTrue, ObservedGeneration: v.Generation, Reason: "Ready", Message: "ready"}}
-	if err := cl.Status().Update(ctx, v); err != nil {
-		t.Fatal(err)
+	if resp.Volume.VolumeId != v.Name || resp.Volume.CapacityBytes != 1<<30 {
+		t.Fatalf("unexpected response: %#v", resp.Volume)
 	}
-	resp, err := s.CreateVolume(ctx, req)
+	resp, err = s.CreateVolume(ctx, req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if resp.Volume.VolumeId != v.Name || resp.Volume.CapacityBytes != 1<<30 {
 		t.Fatalf("unexpected response: %#v", resp.Volume)
+	}
+}
+
+func TestCreateVolumeDeadlineLeavesProvisioningRunning(t *testing.T) {
+	cl := fake.NewClientBuilder().WithScheme(kube.Scheme()).WithStatusSubresource(&storagev1alpha1.RWXVolume{}).Build()
+	s := &ControllerServer{Client: cl, ProvisioningPollInterval: time.Millisecond}
+	req := &csipb.CreateVolumeRequest{Name: "pvc-pending", VolumeCapabilities: []*csipb.VolumeCapability{rwxCapability()}, Parameters: map[string]string{BackingStorageClassParameter: "fast-rwo"}}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	_, err := s.CreateVolume(ctx, req)
+	if status.Code(err) != codes.DeadlineExceeded {
+		t.Fatalf("code=%s err=%v", status.Code(err), err)
+	}
+	v := &storagev1alpha1.RWXVolume{}
+	if err := cl.Get(context.Background(), types.NamespacedName{Name: volumeName(req.Name)}, v); err != nil {
+		t.Fatalf("provisioning resource was not retained: %v", err)
 	}
 }
 func TestCreateVolumeRejectsInvalidDirectoryMode(t *testing.T) {

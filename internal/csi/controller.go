@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"strings"
+	"time"
 
 	csipb "github.com/container-storage-interface/spec/lib/go/csi"
 	storagev1alpha1 "github.com/rwox-csi/rwox-csi/api/v1alpha1"
@@ -18,14 +19,23 @@ import (
 )
 
 const (
-	BackingStorageClassParameter = "backingStorageClass"
-	DirectoryModeParameter       = "directoryMode"
-	BackingDirectoryParameter    = "backingDirectory"
+	BackingStorageClassParameter    = "backingStorageClass"
+	DirectoryModeParameter          = "directoryMode"
+	BackingDirectoryParameter       = "backingDirectory"
+	defaultProvisioningPollInterval = 250 * time.Millisecond
 )
 
 type ControllerServer struct {
 	csipb.UnimplementedControllerServer
-	Client client.Client
+	Client                   client.Client
+	ProvisioningPollInterval time.Duration
+}
+
+func (s *ControllerServer) provisioningPollInterval() time.Duration {
+	if s.ProvisioningPollInterval > 0 {
+		return s.ProvisioningPollInterval
+	}
+	return defaultProvisioningPollInterval
 }
 
 func volumeName(name string) string {
@@ -71,28 +81,45 @@ func (s *ControllerServer) CreateVolume(ctx context.Context, req *csipb.CreateVo
 	err := s.Client.Get(ctx, types.NamespacedName{Name: name}, v)
 	if apierrors.IsNotFound(err) {
 		v = &storagev1alpha1.RWXVolume{TypeMeta: metav1.TypeMeta{APIVersion: storagev1alpha1.GroupVersion.String(), Kind: "RWXVolume"}, ObjectMeta: metav1.ObjectMeta{Name: name, Annotations: map[string]string{"storage.example.io/csi-name": req.Name}}, Spec: storagev1alpha1.RWXVolumeSpec{Capacity: want, Backing: storagev1alpha1.BackingSpec{StorageClassName: backing}, NFS: storagev1alpha1.NFSSpec{Version: "4.1", ExportPath: "/", DirectoryMode: directoryMode, BackingDirectory: backingDirectory}}}
-		if err := s.Client.Create(ctx, v); err != nil {
+		if err := s.Client.Create(ctx, v); err != nil && !apierrors.IsAlreadyExists(err) {
 			return nil, status.Errorf(codes.Internal, "create RWXVolume: %v", err)
 		}
-		return nil, status.Error(codes.Aborted, "volume provisioning started")
-	}
-	if err != nil {
+	} else if err != nil {
 		return nil, status.Errorf(codes.Internal, "get RWXVolume: %v", err)
 	}
-	if v.Spec.Backing.StorageClassName != backing || v.Spec.NFS.DirectoryMode != directoryMode || v.Spec.NFS.BackingDirectory != backingDirectory || v.Spec.Capacity.Cmp(want) < 0 {
-		return nil, status.Error(codes.AlreadyExists, "a volume with this name exists with incompatible parameters")
+	return s.waitForVolume(ctx, name, backing, directoryMode, backingDirectory, want)
+}
+
+func (s *ControllerServer) waitForVolume(ctx context.Context, name, backing, directoryMode, backingDirectory string, want resource.Quantity) (*csipb.CreateVolumeResponse, error) {
+	ticker := time.NewTicker(s.provisioningPollInterval())
+	defer ticker.Stop()
+	for {
+		v := &storagev1alpha1.RWXVolume{}
+		if err := s.Client.Get(ctx, types.NamespacedName{Name: name}, v); err != nil {
+			if ctx.Err() != nil {
+				return nil, status.FromContextError(ctx.Err()).Err()
+			}
+			return nil, status.Errorf(codes.Internal, "get RWXVolume: %v", err)
+		}
+		if v.Spec.Backing.StorageClassName != backing || v.Spec.NFS.DirectoryMode != directoryMode || v.Spec.NFS.BackingDirectory != backingDirectory || v.Spec.Capacity.Cmp(want) < 0 {
+			return nil, status.Error(codes.AlreadyExists, "a volume with this name exists with incompatible parameters")
+		}
+		if v.Status.Failure != nil && v.Status.Failure.Class == "Permanent" {
+			return nil, status.Errorf(codes.FailedPrecondition, "%s: %s", v.Status.Failure.Reason, v.Status.Failure.Message)
+		}
+		if v.Ready() {
+			cap := v.Spec.Capacity.Value()
+			if v.Status.Capacity != nil {
+				cap = v.Status.Capacity.Value()
+			}
+			return &csipb.CreateVolumeResponse{Volume: &csipb.Volume{VolumeId: name, CapacityBytes: cap, VolumeContext: map[string]string{"protocol": "nfs4.1", "export": "/"}}}, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, status.FromContextError(ctx.Err()).Err()
+		case <-ticker.C:
+		}
 	}
-	if v.Status.Failure != nil && v.Status.Failure.Class == "Permanent" {
-		return nil, status.Errorf(codes.FailedPrecondition, "%s: %s", v.Status.Failure.Reason, v.Status.Failure.Message)
-	}
-	if !v.Ready() {
-		return nil, status.Error(codes.Aborted, "volume is still provisioning")
-	}
-	cap := v.Spec.Capacity.Value()
-	if v.Status.Capacity != nil {
-		cap = v.Status.Capacity.Value()
-	}
-	return &csipb.CreateVolumeResponse{Volume: &csipb.Volume{VolumeId: name, CapacityBytes: cap, VolumeContext: map[string]string{"protocol": "nfs4.1", "export": "/"}}}, nil
 }
 func (s *ControllerServer) DeleteVolume(ctx context.Context, req *csipb.DeleteVolumeRequest) (*csipb.DeleteVolumeResponse, error) {
 	if req.VolumeId == "" {
