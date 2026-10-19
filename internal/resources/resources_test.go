@@ -15,6 +15,8 @@ func volume() *storagev1alpha1.RWXVolume {
 func TestResourceContract(t *testing.T) {
 	v := volume()
 	v.Spec.NFS.DirectoryMode = "0777"
+	v.Spec.NFS.DirectoryUID = "1501"
+	v.Spec.NFS.DirectoryGID = "1010"
 	v.Spec.NFS.BackingDirectory = "export"
 	n := NamesFor(v.Name)
 	if n.PVC != "rwxvol-test-backing" || n.ConfigMap != "rwxvol-test-ganesha" || n.StatefulSet != "rwxvol-test-gateway" || n.Service != "rwxvol-test" {
@@ -27,6 +29,9 @@ func TestResourceContract(t *testing.T) {
 	sts := StatefulSet(v, "rwx-csi-system", "ganesha:test")
 	if *sts.Spec.Replicas != 1 || sts.Spec.Template.Spec.Volumes[0].PersistentVolumeClaim.ClaimName != n.PVC {
 		t.Fatalf("unexpected StatefulSet: %#v", sts.Spec)
+	}
+	if sts.Spec.Template.Annotations["storage.example.io/config-hash"] == "" {
+		t.Fatal("StatefulSet pod template does not track Ganesha config changes")
 	}
 	ganesha := sts.Spec.Template.Spec.Containers[0]
 	if len(ganesha.Command) != 2 || ganesha.Command[0] != "/bin/bash" || ganesha.Command[1] != "-ec" {
@@ -46,6 +51,9 @@ func TestResourceContract(t *testing.T) {
 	if !strings.Contains(ganesha.Args[0], "find \"/data/export\" -xdev -type d -exec chmod 0777 {} +") {
 		t.Errorf("Ganesha startup command does not initialize export directory permissions: %q", ganesha.Args[0])
 	}
+	if !strings.Contains(ganesha.Args[0], "chown 1501:1010 \"/data/export\"") {
+		t.Errorf("Ganesha startup command does not initialize export directory ownership: %q", ganesha.Args[0])
+	}
 	if Service(v, "rwx-csi-system").Spec.Ports[0].Port != 2049 {
 		t.Fatal("NFS service does not expose 2049")
 	}
@@ -54,7 +62,7 @@ func TestGaneshaSecurityContract(t *testing.T) {
 	v := volume()
 	v.Spec.NFS.BackingDirectory = "export"
 	cfg := GaneshaConfig(v)
-	for _, want := range []string{"Protocols = 4", "Graceless = true", "Grace_Period = 0", "SecType = sys", "Squash = No_Root_Squash", "Path = \"/data/export\""} {
+	for _, want := range []string{"Protocols = 4", "Graceless = true", "Grace_Period = 0", "Only_Numeric_Owners = true", "SecType = sys", "Squash = No_Root_Squash", "Path = \"/data/export\""} {
 		if !strings.Contains(cfg, want) {
 			t.Errorf("config missing %q", want)
 		}

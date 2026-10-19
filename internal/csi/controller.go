@@ -21,6 +21,8 @@ import (
 const (
 	BackingStorageClassParameter    = "backingStorageClass"
 	DirectoryModeParameter          = "directoryMode"
+	DirectoryUIDParameter           = "directoryUID"
+	DirectoryGIDParameter           = "directoryGID"
 	BackingDirectoryParameter       = "backingDirectory"
 	defaultProvisioningPollInterval = 250 * time.Millisecond
 )
@@ -67,6 +69,14 @@ func (s *ControllerServer) CreateVolume(ctx context.Context, req *csipb.CreateVo
 	if !storagev1alpha1.ValidDirectoryMode(directoryMode) {
 		return nil, status.Errorf(codes.InvalidArgument, "StorageClass parameter %q must be an octal mode such as 0777", DirectoryModeParameter)
 	}
+	directoryUID := req.Parameters[DirectoryUIDParameter]
+	if !storagev1alpha1.ValidDirectoryID(directoryUID) {
+		return nil, status.Errorf(codes.InvalidArgument, "StorageClass parameter %q must be an unsigned 32-bit integer", DirectoryUIDParameter)
+	}
+	directoryGID := req.Parameters[DirectoryGIDParameter]
+	if !storagev1alpha1.ValidDirectoryID(directoryGID) {
+		return nil, status.Errorf(codes.InvalidArgument, "StorageClass parameter %q must be an unsigned 32-bit integer", DirectoryGIDParameter)
+	}
 	backingDirectory := req.Parameters[BackingDirectoryParameter]
 	if !storagev1alpha1.ValidBackingDirectory(backingDirectory) {
 		return nil, status.Errorf(codes.InvalidArgument, "StorageClass parameter %q must be a single relative directory name", BackingDirectoryParameter)
@@ -80,17 +90,17 @@ func (s *ControllerServer) CreateVolume(ctx context.Context, req *csipb.CreateVo
 	v := &storagev1alpha1.RWXVolume{}
 	err := s.Client.Get(ctx, types.NamespacedName{Name: name}, v)
 	if apierrors.IsNotFound(err) {
-		v = &storagev1alpha1.RWXVolume{TypeMeta: metav1.TypeMeta{APIVersion: storagev1alpha1.GroupVersion.String(), Kind: "RWXVolume"}, ObjectMeta: metav1.ObjectMeta{Name: name, Annotations: map[string]string{"storage.example.io/csi-name": req.Name}}, Spec: storagev1alpha1.RWXVolumeSpec{Capacity: want, Backing: storagev1alpha1.BackingSpec{StorageClassName: backing}, NFS: storagev1alpha1.NFSSpec{Version: "4.1", ExportPath: "/", DirectoryMode: directoryMode, BackingDirectory: backingDirectory}}}
+		v = &storagev1alpha1.RWXVolume{TypeMeta: metav1.TypeMeta{APIVersion: storagev1alpha1.GroupVersion.String(), Kind: "RWXVolume"}, ObjectMeta: metav1.ObjectMeta{Name: name, Annotations: map[string]string{"storage.example.io/csi-name": req.Name}}, Spec: storagev1alpha1.RWXVolumeSpec{Capacity: want, Backing: storagev1alpha1.BackingSpec{StorageClassName: backing}, NFS: storagev1alpha1.NFSSpec{Version: "4.1", ExportPath: "/", DirectoryMode: directoryMode, DirectoryUID: directoryUID, DirectoryGID: directoryGID, BackingDirectory: backingDirectory}}}
 		if err := s.Client.Create(ctx, v); err != nil && !apierrors.IsAlreadyExists(err) {
 			return nil, status.Errorf(codes.Internal, "create RWXVolume: %v", err)
 		}
 	} else if err != nil {
 		return nil, status.Errorf(codes.Internal, "get RWXVolume: %v", err)
 	}
-	return s.waitForVolume(ctx, name, backing, directoryMode, backingDirectory, want)
+	return s.waitForVolume(ctx, name, backing, directoryMode, directoryUID, directoryGID, backingDirectory, want)
 }
 
-func (s *ControllerServer) waitForVolume(ctx context.Context, name, backing, directoryMode, backingDirectory string, want resource.Quantity) (*csipb.CreateVolumeResponse, error) {
+func (s *ControllerServer) waitForVolume(ctx context.Context, name, backing, directoryMode, directoryUID, directoryGID, backingDirectory string, want resource.Quantity) (*csipb.CreateVolumeResponse, error) {
 	ticker := time.NewTicker(s.provisioningPollInterval())
 	defer ticker.Stop()
 	for {
@@ -101,7 +111,7 @@ func (s *ControllerServer) waitForVolume(ctx context.Context, name, backing, dir
 			}
 			return nil, status.Errorf(codes.Internal, "get RWXVolume: %v", err)
 		}
-		if v.Spec.Backing.StorageClassName != backing || v.Spec.NFS.DirectoryMode != directoryMode || v.Spec.NFS.BackingDirectory != backingDirectory || v.Spec.Capacity.Cmp(want) < 0 {
+		if v.Spec.Backing.StorageClassName != backing || v.Spec.NFS.DirectoryMode != directoryMode || v.Spec.NFS.DirectoryUID != directoryUID || v.Spec.NFS.DirectoryGID != directoryGID || v.Spec.NFS.BackingDirectory != backingDirectory || v.Spec.Capacity.Cmp(want) < 0 {
 			return nil, status.Error(codes.AlreadyExists, "a volume with this name exists with incompatible parameters")
 		}
 		if v.Status.Failure != nil && v.Status.Failure.Class == "Permanent" {

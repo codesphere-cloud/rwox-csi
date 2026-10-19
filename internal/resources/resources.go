@@ -1,6 +1,7 @@
 package resources
 
 import (
+	"crypto/sha256"
 	"fmt"
 
 	storagev1alpha1 "github.com/rwox-csi/rwox-csi/api/v1alpha1"
@@ -60,6 +61,7 @@ func GaneshaConfig(v *storagev1alpha1.RWXVolume) string {
 NFSV4 {
   Graceless = true;
   Grace_Period = 0;
+  Only_Numeric_Owners = true;
 }
 EXPORT_DEFAULTS {
   Access_Type = RW;
@@ -98,8 +100,16 @@ func StatefulSet(v *storagev1alpha1.RWXVolume, namespace, image string) *appsv1.
 	if v.Spec.NFS.DirectoryMode != "" {
 		startup += fmt.Sprintf("find %q -xdev -type d -exec chmod %s {} +\n", path, v.Spec.NFS.DirectoryMode)
 	}
+	if v.Spec.NFS.DirectoryUID != "" || v.Spec.NFS.DirectoryGID != "" {
+		owner := v.Spec.NFS.DirectoryUID
+		if v.Spec.NFS.DirectoryGID != "" {
+			owner += ":" + v.Spec.NFS.DirectoryGID
+		}
+		startup += fmt.Sprintf("chown %s %q\n", owner, path)
+	}
 	startup += ganeshaStartup
-	return &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: n.StatefulSet, Namespace: namespace, Labels: labels, OwnerReferences: owner(v)}, Spec: appsv1.StatefulSetSpec{ServiceName: n.Service, Replicas: ptr.To[int32](1), Selector: &metav1.LabelSelector{MatchLabels: labels}, PodManagementPolicy: appsv1.ParallelPodManagement, Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels}, Spec: corev1.PodSpec{TerminationGracePeriodSeconds: ptr.To[int64](30), Containers: []corev1.Container{{Name: "ganesha", Image: image, ImagePullPolicy: corev1.PullIfNotPresent, Command: []string{"/bin/bash", "-ec"}, Args: []string{startup}, SecurityContext: &corev1.SecurityContext{Privileged: ptr.To(true)}, Ports: []corev1.ContainerPort{{Name: "nfs", ContainerPort: 2049, Protocol: corev1.ProtocolTCP}}, ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"sh", "-ec", "rpcinfo -t 127.0.0.1 nfs 4 >/dev/null"}}}, InitialDelaySeconds: 2, PeriodSeconds: 3, FailureThreshold: 10}, Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("25m"), corev1.ResourceMemory: resource.MustParse("64Mi")}}, VolumeMounts: []corev1.VolumeMount{{Name: "data", MountPath: "/data"}, {Name: "config", MountPath: "/etc/ganesha/ganesha.conf", SubPath: "ganesha.conf", ReadOnly: true}}}}, Volumes: []corev1.Volume{{Name: "data", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: n.PVC}}}, {Name: "config", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: n.ConfigMap}}}}}}}}}
+	configHash := fmt.Sprintf("%x", sha256.Sum256([]byte(GaneshaConfig(v))))
+	return &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: n.StatefulSet, Namespace: namespace, Labels: labels, OwnerReferences: owner(v)}, Spec: appsv1.StatefulSetSpec{ServiceName: n.Service, Replicas: ptr.To[int32](1), Selector: &metav1.LabelSelector{MatchLabels: labels}, PodManagementPolicy: appsv1.ParallelPodManagement, Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels, Annotations: map[string]string{"storage.example.io/config-hash": configHash}}, Spec: corev1.PodSpec{TerminationGracePeriodSeconds: ptr.To[int64](30), Containers: []corev1.Container{{Name: "ganesha", Image: image, ImagePullPolicy: corev1.PullIfNotPresent, Command: []string{"/bin/bash", "-ec"}, Args: []string{startup}, SecurityContext: &corev1.SecurityContext{Privileged: ptr.To(true)}, Ports: []corev1.ContainerPort{{Name: "nfs", ContainerPort: 2049, Protocol: corev1.ProtocolTCP}}, ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"sh", "-ec", "rpcinfo -t 127.0.0.1 nfs 4 >/dev/null"}}}, InitialDelaySeconds: 2, PeriodSeconds: 3, FailureThreshold: 10}, Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("25m"), corev1.ResourceMemory: resource.MustParse("64Mi")}}, VolumeMounts: []corev1.VolumeMount{{Name: "data", MountPath: "/data"}, {Name: "config", MountPath: "/etc/ganesha/ganesha.conf", SubPath: "ganesha.conf", ReadOnly: true}}}}, Volumes: []corev1.Volume{{Name: "data", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: n.PVC}}}, {Name: "config", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: n.ConfigMap}}}}}}}}}
 }
 
 func ServiceDNS(name, namespace, clusterDomain string) string {

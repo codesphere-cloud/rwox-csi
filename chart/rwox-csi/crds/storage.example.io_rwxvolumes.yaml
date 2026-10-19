@@ -43,6 +43,8 @@ spec:
                     version: {type: string, enum: ["4.1"]}
                     exportPath: {type: string, enum: ["/"]}
                     directoryMode: {type: string, pattern: '^0[0-7]{3}$'}
+                    directoryUID: {type: string, pattern: '^[0-9]+$'}
+                    directoryGID: {type: string, pattern: '^[0-9]+$'}
                     backingDirectory: {type: string, pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$'}
             status:
               type: object

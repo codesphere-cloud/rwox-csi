@@ -22,6 +22,9 @@ storageClass:
   backingStorageClass: standard
   # Optional octal mode applied recursively to directories in each export.
   directoryMode: ""
+  # Optional numeric owner applied to the export root. Useful when consumers run as a fixed UID/GID.
+  directoryUID: ""
+  directoryGID: ""
   # Dedicated directory inside the backing filesystem. Keeps filesystem metadata out of the export.
   backingDirectory: export
   reclaimPolicy: Delete

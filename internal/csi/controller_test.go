@@ -47,7 +47,7 @@ func TestCreateVolumeWaitsUntilReadyAndIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	cl := fake.NewClientBuilder().WithScheme(kube.Scheme()).WithStatusSubresource(&storagev1alpha1.RWXVolume{}).Build()
 	s := &ControllerServer{Client: &readyOnCreateClient{Client: cl}, ProvisioningPollInterval: time.Millisecond}
-	req := &csipb.CreateVolumeRequest{Name: "pvc-123", CapacityRange: &csipb.CapacityRange{RequiredBytes: 1 << 30}, VolumeCapabilities: []*csipb.VolumeCapability{rwxCapability()}, Parameters: map[string]string{BackingStorageClassParameter: "fast-rwo", DirectoryModeParameter: "0777", BackingDirectoryParameter: "export"}}
+	req := &csipb.CreateVolumeRequest{Name: "pvc-123", CapacityRange: &csipb.CapacityRange{RequiredBytes: 1 << 30}, VolumeCapabilities: []*csipb.VolumeCapability{rwxCapability()}, Parameters: map[string]string{BackingStorageClassParameter: "fast-rwo", DirectoryModeParameter: "0777", DirectoryUIDParameter: "1501", DirectoryGIDParameter: "1010", BackingDirectoryParameter: "export"}}
 	resp, err := s.CreateVolume(ctx, req)
 	if err != nil {
 		t.Fatal(err)
@@ -61,6 +61,9 @@ func TestCreateVolumeWaitsUntilReadyAndIsIdempotent(t *testing.T) {
 	}
 	if v.Spec.NFS.DirectoryMode != "0777" {
 		t.Fatalf("directory mode=%q", v.Spec.NFS.DirectoryMode)
+	}
+	if v.Spec.NFS.DirectoryUID != "1501" || v.Spec.NFS.DirectoryGID != "1010" {
+		t.Fatalf("directory owner=%s:%s", v.Spec.NFS.DirectoryUID, v.Spec.NFS.DirectoryGID)
 	}
 	if v.Spec.NFS.BackingDirectory != "export" {
 		t.Fatalf("backing directory=%q", v.Spec.NFS.BackingDirectory)
@@ -97,6 +100,15 @@ func TestCreateVolumeRejectsInvalidDirectoryMode(t *testing.T) {
 	_, err := s.CreateVolume(context.Background(), &csipb.CreateVolumeRequest{Name: "x", VolumeCapabilities: []*csipb.VolumeCapability{rwxCapability()}, Parameters: map[string]string{BackingStorageClassParameter: "fast", DirectoryModeParameter: "0777; touch /tmp/pwned"}})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("code=%s err=%v", status.Code(err), err)
+	}
+}
+func TestCreateVolumeRejectsInvalidDirectoryOwner(t *testing.T) {
+	s := &ControllerServer{Client: fake.NewClientBuilder().WithScheme(kube.Scheme()).Build()}
+	for parameter, value := range map[string]string{DirectoryUIDParameter: "-1", DirectoryGIDParameter: "4294967296"} {
+		_, err := s.CreateVolume(context.Background(), &csipb.CreateVolumeRequest{Name: "x", VolumeCapabilities: []*csipb.VolumeCapability{rwxCapability()}, Parameters: map[string]string{BackingStorageClassParameter: "fast", parameter: value}})
+		if status.Code(err) != codes.InvalidArgument {
+			t.Fatalf("parameter=%s code=%s err=%v", parameter, status.Code(err), err)
+		}
 	}
 }
 func TestCreateVolumeRejectsInvalidBackingDirectory(t *testing.T) {

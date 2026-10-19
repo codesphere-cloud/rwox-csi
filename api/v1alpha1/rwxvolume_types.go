@@ -2,6 +2,7 @@ package v1alpha1
 
 import (
 	"regexp"
+	"strconv"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,11 +35,21 @@ type NFSSpec struct {
 	Version          string `json:"version,omitempty"`
 	ExportPath       string `json:"exportPath,omitempty"`
 	DirectoryMode    string `json:"directoryMode,omitempty"`
+	DirectoryUID     string `json:"directoryUID,omitempty"`
+	DirectoryGID     string `json:"directoryGID,omitempty"`
 	BackingDirectory string `json:"backingDirectory,omitempty"`
 }
 
 func ValidDirectoryMode(mode string) bool {
 	return mode == "" || directoryModePattern.MatchString(mode)
+}
+
+func ValidDirectoryID(id string) bool {
+	if id == "" {
+		return true
+	}
+	_, err := strconv.ParseUint(id, 10, 32)
+	return err == nil
 }
 
 func ValidBackingDirectory(directory string) bool {

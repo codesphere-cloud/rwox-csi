@@ -65,7 +65,7 @@ Gateways run NFSv4 in graceless mode. Each volume has exactly one gateway replic
 
 The chart defaults `storageClass.backingDirectory` to `export`, so each gateway exports a dedicated directory inside the backing filesystem instead of its root. This prevents filesystem-owned entries such as ext4's `lost+found` from appearing to consumers. Set it to an empty string only for compatibility with volumes that already store consumer data at the backing filesystem root.
 
-Set `storageClass.directoryMode` to an octal mode such as `0777` when consumers run with arbitrary UIDs and need writable export directories. The value is stored per `RWXVolume`; the gateway recursively applies it within the selected backing directory on startup. Leave it empty to preserve the backing filesystem's modes.
+Set `storageClass.directoryMode` to an octal mode such as `0777` when consumers run with arbitrary UIDs and need writable export directories. Set `storageClass.directoryUID` and `storageClass.directoryGID` when the export root should be owned by a fixed workload identity. These values are stored per `RWXVolume`; the gateway applies the mode within the selected backing directory and the owner to its root on startup. NFSv4 numeric owners are enabled so clients do not translate otherwise valid IDs to `nobody`. Leave the settings empty to preserve the backing filesystem's mode and owner.
 
 ## PoC acceptance
 

@@ -9,6 +9,12 @@ parameters:
 {{- with .Values.storageClass.directoryMode }}
   directoryMode: {{ . | quote }}
 {{- end }}
+{{- with .Values.storageClass.directoryUID }}
+  directoryUID: {{ . | quote }}
+{{- end }}
+{{- with .Values.storageClass.directoryGID }}
+  directoryGID: {{ . | quote }}
+{{- end }}
 {{- with .Values.storageClass.backingDirectory }}
   backingDirectory: {{ . | quote }}
 {{- end }}
