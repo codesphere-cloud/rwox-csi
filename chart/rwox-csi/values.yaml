@@ -21,6 +21,8 @@ storageClass:
   backingStorageClass: standard
   # Optional octal mode applied recursively to directories in each export.
   directoryMode: ""
+  # Dedicated directory inside the backing filesystem. Keeps filesystem metadata out of the export.
+  backingDirectory: export
   reclaimPolicy: Delete
   volumeBindingMode: Immediate
   mountOptions:

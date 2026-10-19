@@ -7,7 +7,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-var directoryModePattern = regexp.MustCompile(`^0[0-7]{3}$`)
+var (
+	directoryModePattern    = regexp.MustCompile(`^0[0-7]{3}$`)
+	backingDirectoryPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
+)
 
 const (
 	FinalizerName            = "storage.example.io/cleanup"
@@ -28,13 +31,18 @@ type BackingSpec struct {
 }
 
 type NFSSpec struct {
-	Version       string `json:"version,omitempty"`
-	ExportPath    string `json:"exportPath,omitempty"`
-	DirectoryMode string `json:"directoryMode,omitempty"`
+	Version          string `json:"version,omitempty"`
+	ExportPath       string `json:"exportPath,omitempty"`
+	DirectoryMode    string `json:"directoryMode,omitempty"`
+	BackingDirectory string `json:"backingDirectory,omitempty"`
 }
 
 func ValidDirectoryMode(mode string) bool {
 	return mode == "" || directoryModePattern.MatchString(mode)
+}
+
+func ValidBackingDirectory(directory string) bool {
+	return directory == "" || backingDirectoryPattern.MatchString(directory)
 }
 
 type ObjectReference struct {

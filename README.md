@@ -61,7 +61,9 @@ GHCR packages are private by default until their package visibility is changed. 
 
 For local development, install `./chart/rwox-csi` and override `image.repository` and `image.tag`. The chart defaults to the public `ghcr.io/kubernetes-sigs/nfs-ganesha:v6.5` gateway image. It is configurable with `images.ganesha`; compatible replacements must provide `bash`, `find`, `chmod`, `rpcbind`, `rpc.statd`, `dbus-daemon`, `ganesha.nfsd`, and `rpcinfo` at the paths used by the generated StatefulSet. Nodes must have the NFS client mount helper installed. The chart creates the `rwox` StorageClass by default; edit `storageClass.name`, `mountOptions`, and `backingStorageClass` as needed. Only use `reclaimPolicy: Delete`.
 
-Set `storageClass.directoryMode` to an octal mode such as `0777` when consumers run with arbitrary UIDs and need writable export directories. The value is stored per `RWXVolume`; the gateway recursively applies it to directories on startup. Leave it empty to preserve the backing filesystem's modes.
+The chart defaults `storageClass.backingDirectory` to `export`, so each gateway exports a dedicated directory inside the backing filesystem instead of its root. This prevents filesystem-owned entries such as ext4's `lost+found` from appearing to consumers. Set it to an empty string only for compatibility with volumes that already store consumer data at the backing filesystem root.
+
+Set `storageClass.directoryMode` to an octal mode such as `0777` when consumers run with arbitrary UIDs and need writable export directories. The value is stored per `RWXVolume`; the gateway recursively applies it within the selected backing directory on startup. Leave it empty to preserve the backing filesystem's modes.
 
 ## PoC acceptance
 

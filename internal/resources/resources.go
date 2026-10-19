@@ -43,8 +43,15 @@ func PVC(v *storagev1alpha1.RWXVolume, namespace string) *corev1.PersistentVolum
 	return &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: n.PVC, Namespace: namespace, Labels: Labels(v.Name), OwnerReferences: owner(v)}, Spec: corev1.PersistentVolumeClaimSpec{AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}, VolumeMode: &mode, StorageClassName: ptr.To(v.Spec.Backing.StorageClassName), Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: v.Spec.Capacity.DeepCopy()}}}}
 }
 
-func GaneshaConfig() string {
-	return `NFS_CORE_PARAM {
+func backingPath(v *storagev1alpha1.RWXVolume) string {
+	if v.Spec.NFS.BackingDirectory == "" {
+		return "/data"
+	}
+	return "/data/" + v.Spec.NFS.BackingDirectory
+}
+
+func GaneshaConfig(v *storagev1alpha1.RWXVolume) string {
+	return fmt.Sprintf(`NFS_CORE_PARAM {
   Protocols = 4;
 }
 EXPORT_DEFAULTS {
@@ -56,16 +63,16 @@ EXPORT_DEFAULTS {
 }
 EXPORT {
   Export_Id = 1;
-  Path = "/data";
+  Path = %q;
   Pseudo = "/";
   FSAL { Name = VFS; }
 }
-`
+`, backingPath(v))
 }
 
 func ConfigMap(v *storagev1alpha1.RWXVolume, namespace string) *corev1.ConfigMap {
 	n := NamesFor(v.Name)
-	return &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: n.ConfigMap, Namespace: namespace, Labels: Labels(v.Name), OwnerReferences: owner(v)}, Data: map[string]string{"ganesha.conf": GaneshaConfig()}}
+	return &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: n.ConfigMap, Namespace: namespace, Labels: Labels(v.Name), OwnerReferences: owner(v)}, Data: map[string]string{"ganesha.conf": GaneshaConfig(v)}}
 }
 
 func Service(v *storagev1alpha1.RWXVolume, namespace string) *corev1.Service {
@@ -76,10 +83,15 @@ func Service(v *storagev1alpha1.RWXVolume, namespace string) *corev1.Service {
 func StatefulSet(v *storagev1alpha1.RWXVolume, namespace, image string) *appsv1.StatefulSet {
 	n := NamesFor(v.Name)
 	labels := Labels(v.Name)
-	startup := ganeshaStartup
-	if v.Spec.NFS.DirectoryMode != "" {
-		startup = fmt.Sprintf("find /data -xdev -type d -exec chmod %s {} +\n%s", v.Spec.NFS.DirectoryMode, startup)
+	path := backingPath(v)
+	startup := ""
+	if v.Spec.NFS.BackingDirectory != "" {
+		startup += fmt.Sprintf("mkdir -p %q\n", path)
 	}
+	if v.Spec.NFS.DirectoryMode != "" {
+		startup += fmt.Sprintf("find %q -xdev -type d -exec chmod %s {} +\n", path, v.Spec.NFS.DirectoryMode)
+	}
+	startup += ganeshaStartup
 	return &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: n.StatefulSet, Namespace: namespace, Labels: labels, OwnerReferences: owner(v)}, Spec: appsv1.StatefulSetSpec{ServiceName: n.Service, Replicas: ptr.To[int32](1), Selector: &metav1.LabelSelector{MatchLabels: labels}, PodManagementPolicy: appsv1.ParallelPodManagement, Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels}, Spec: corev1.PodSpec{TerminationGracePeriodSeconds: ptr.To[int64](30), Containers: []corev1.Container{{Name: "ganesha", Image: image, ImagePullPolicy: corev1.PullIfNotPresent, Command: []string{"/bin/bash", "-ec"}, Args: []string{startup}, SecurityContext: &corev1.SecurityContext{Privileged: ptr.To(true)}, Ports: []corev1.ContainerPort{{Name: "nfs", ContainerPort: 2049, Protocol: corev1.ProtocolTCP}}, ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{"sh", "-ec", "rpcinfo -t 127.0.0.1 nfs 4 >/dev/null"}}}, InitialDelaySeconds: 2, PeriodSeconds: 3, FailureThreshold: 10}, Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("25m"), corev1.ResourceMemory: resource.MustParse("64Mi")}}, VolumeMounts: []corev1.VolumeMount{{Name: "data", MountPath: "/data"}, {Name: "config", MountPath: "/etc/ganesha/ganesha.conf", SubPath: "ganesha.conf", ReadOnly: true}}}}, Volumes: []corev1.Volume{{Name: "data", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: n.PVC}}}, {Name: "config", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: n.ConfigMap}}}}}}}}}
 }
 

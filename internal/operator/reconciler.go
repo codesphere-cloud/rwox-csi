@@ -63,6 +63,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if !storagev1alpha1.ValidDirectoryMode(v.Spec.NFS.DirectoryMode) {
 		return r.permanent(ctx, v, "InvalidDirectoryMode", "spec.nfs.directoryMode must be an octal mode such as 0777")
 	}
+	if !storagev1alpha1.ValidBackingDirectory(v.Spec.NFS.BackingDirectory) {
+		return r.permanent(ctx, v, "InvalidBackingDirectory", "spec.nfs.backingDirectory must be a single relative directory name")
+	}
 	sc := &storagev1.StorageClass{}
 	if err := r.Get(ctx, types.NamespacedName{Name: v.Spec.Backing.StorageClassName}, sc); err != nil {
 		if apierrors.IsNotFound(err) {

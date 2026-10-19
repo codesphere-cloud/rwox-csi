@@ -22,7 +22,7 @@ func TestCreateVolumeIsAsynchronousAndIdempotent(t *testing.T) {
 	ctx := context.Background()
 	cl := fake.NewClientBuilder().WithScheme(kube.Scheme()).WithStatusSubresource(&storagev1alpha1.RWXVolume{}).Build()
 	s := &ControllerServer{Client: cl}
-	req := &csipb.CreateVolumeRequest{Name: "pvc-123", CapacityRange: &csipb.CapacityRange{RequiredBytes: 1 << 30}, VolumeCapabilities: []*csipb.VolumeCapability{rwxCapability()}, Parameters: map[string]string{BackingStorageClassParameter: "fast-rwo", DirectoryModeParameter: "0777"}}
+	req := &csipb.CreateVolumeRequest{Name: "pvc-123", CapacityRange: &csipb.CapacityRange{RequiredBytes: 1 << 30}, VolumeCapabilities: []*csipb.VolumeCapability{rwxCapability()}, Parameters: map[string]string{BackingStorageClassParameter: "fast-rwo", DirectoryModeParameter: "0777", BackingDirectoryParameter: "export"}}
 	if _, err := s.CreateVolume(ctx, req); status.Code(err) != codes.Aborted {
 		t.Fatalf("first call code=%s err=%v", status.Code(err), err)
 	}
@@ -35,6 +35,9 @@ func TestCreateVolumeIsAsynchronousAndIdempotent(t *testing.T) {
 	}
 	if v.Spec.NFS.DirectoryMode != "0777" {
 		t.Fatalf("directory mode=%q", v.Spec.NFS.DirectoryMode)
+	}
+	if v.Spec.NFS.BackingDirectory != "export" {
+		t.Fatalf("backing directory=%q", v.Spec.NFS.BackingDirectory)
 	}
 	cap := resource.MustParse("1Gi")
 	v.Status.Capacity = &cap
@@ -53,6 +56,13 @@ func TestCreateVolumeIsAsynchronousAndIdempotent(t *testing.T) {
 func TestCreateVolumeRejectsInvalidDirectoryMode(t *testing.T) {
 	s := &ControllerServer{Client: fake.NewClientBuilder().WithScheme(kube.Scheme()).Build()}
 	_, err := s.CreateVolume(context.Background(), &csipb.CreateVolumeRequest{Name: "x", VolumeCapabilities: []*csipb.VolumeCapability{rwxCapability()}, Parameters: map[string]string{BackingStorageClassParameter: "fast", DirectoryModeParameter: "0777; touch /tmp/pwned"}})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code=%s err=%v", status.Code(err), err)
+	}
+}
+func TestCreateVolumeRejectsInvalidBackingDirectory(t *testing.T) {
+	s := &ControllerServer{Client: fake.NewClientBuilder().WithScheme(kube.Scheme()).Build()}
+	_, err := s.CreateVolume(context.Background(), &csipb.CreateVolumeRequest{Name: "x", VolumeCapabilities: []*csipb.VolumeCapability{rwxCapability()}, Parameters: map[string]string{BackingStorageClassParameter: "fast", BackingDirectoryParameter: "../escape"}})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("code=%s err=%v", status.Code(err), err)
 	}

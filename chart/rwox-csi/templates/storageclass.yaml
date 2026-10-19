@@ -9,6 +9,9 @@ parameters:
 {{- with .Values.storageClass.directoryMode }}
   directoryMode: {{ . | quote }}
 {{- end }}
+{{- with .Values.storageClass.backingDirectory }}
+  backingDirectory: {{ . | quote }}
+{{- end }}
 reclaimPolicy: {{ .Values.storageClass.reclaimPolicy }}
 allowVolumeExpansion: true
 volumeBindingMode: {{ .Values.storageClass.volumeBindingMode }}

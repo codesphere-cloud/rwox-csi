@@ -15,6 +15,7 @@ func volume() *storagev1alpha1.RWXVolume {
 func TestResourceContract(t *testing.T) {
 	v := volume()
 	v.Spec.NFS.DirectoryMode = "0777"
+	v.Spec.NFS.BackingDirectory = "export"
 	n := NamesFor(v.Name)
 	if n.PVC != "rwxvol-test-backing" || n.ConfigMap != "rwxvol-test-ganesha" || n.StatefulSet != "rwxvol-test-gateway" || n.Service != "rwxvol-test" {
 		t.Fatalf("unexpected names: %#v", n)
@@ -39,7 +40,10 @@ func TestResourceContract(t *testing.T) {
 			t.Errorf("Ganesha startup command does not start %s", prerequisite)
 		}
 	}
-	if !strings.Contains(ganesha.Args[0], "find /data -xdev -type d -exec chmod 0777 {} +") {
+	if !strings.Contains(ganesha.Args[0], "mkdir -p \"/data/export\"") {
+		t.Errorf("Ganesha startup command does not create the backing directory: %q", ganesha.Args[0])
+	}
+	if !strings.Contains(ganesha.Args[0], "find \"/data/export\" -xdev -type d -exec chmod 0777 {} +") {
 		t.Errorf("Ganesha startup command does not initialize export directory permissions: %q", ganesha.Args[0])
 	}
 	if Service(v, "rwx-csi-system").Spec.Ports[0].Port != 2049 {
@@ -47,11 +51,22 @@ func TestResourceContract(t *testing.T) {
 	}
 }
 func TestGaneshaSecurityContract(t *testing.T) {
-	cfg := GaneshaConfig()
-	for _, want := range []string{"Protocols = 4", "SecType = sys", "Squash = No_Root_Squash", "Path = \"/data\""} {
+	v := volume()
+	v.Spec.NFS.BackingDirectory = "export"
+	cfg := GaneshaConfig(v)
+	for _, want := range []string{"Protocols = 4", "SecType = sys", "Squash = No_Root_Squash", "Path = \"/data/export\""} {
 		if !strings.Contains(cfg, want) {
 			t.Errorf("config missing %q", want)
 		}
+	}
+}
+func TestEmptyBackingDirectoryUsesFilesystemRoot(t *testing.T) {
+	v := volume()
+	if cfg := GaneshaConfig(v); !strings.Contains(cfg, "Path = \"/data\"") {
+		t.Errorf("config does not use the filesystem root: %q", cfg)
+	}
+	if args := StatefulSet(v, "rwx-csi-system", "ganesha:test").Spec.Template.Spec.Containers[0].Args[0]; strings.Contains(args, "mkdir -p") {
+		t.Errorf("legacy root export unexpectedly creates a subdirectory: %q", args)
 	}
 }
 func TestServiceDNS(t *testing.T) {
